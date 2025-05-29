@@ -1,0 +1,66 @@
+bayopt_bounds:
+  dense_dim:
+  - 3
+  - 7
+  drop_rate:
+  - 0.0
+  - 0.3
+  - 0.1
+  graph_dim:
+  - 3
+  - 7
+  learning_rate:
+  - 1e-4
+  - 1e-1
+  n_conv_hidden_layer:
+  - 1
+  - 5
+  n_dense_hidden_layer:
+  - 1
+  - 5
+chirality: false
+computable_atoms:
+- C
+- N
+- O
+- S
+- F
+- Cl
+- Br
+- I
+dataset:
+  dataset_ratio:
+  - 0.8
+  - 0.1
+  - 0.1
+  filepath: ./data/processed/Tg.csv
+  output_dir: ./reports/Tg
+  prop_col_name:
+  - tg
+  smiles_col_name: smiles
+gnn_type: GCN
+hyper_parameters:
+  model:
+    dense_dim: 16
+    drop_rate: 0.0
+    gnn_type: GCN
+    graph_dim: 128
+    n_conv_hidden_layer: 3
+    n_dense_hidden_layer: 1
+    n_features: 42
+    num_of_outputs: 1
+  other:
+    learning_rate: 0.007954064937683933
+polymer: true
+stereochemistry: false
+train:
+  batch_size: 128
+  bayopt_n_epochs: 20
+  bayopt_n_trials: 30
+  bayopt_on: true
+  early_stopping_patience: 1000
+  kfold_n_splits: 3
+  n_epochs: 2000
+  seed: 42
+  tf16: true
+  validation_method: kfold
