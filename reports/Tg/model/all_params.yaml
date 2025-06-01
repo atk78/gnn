@@ -18,6 +18,13 @@ bayopt_bounds:
   n_dense_hidden_layer:
   - 1
   - 5
+bayopt_hparams:
+  batch_size: 128
+  bayopt_on: true
+  cv_n_splits: 3
+  n_epochs: 20
+  n_trials: 30
+  validation_method: cv
 chirality: false
 computable_atoms:
 - C
@@ -33,8 +40,8 @@ dataset:
   - 0.8
   - 0.1
   - 0.1
-  filepath: ./data/processed/Tg.csv
-  output_dir: ./reports/Tg
+  filepath: ./../data/processed/Tg.csv
+  output_dir: ./../reports/Tg
   prop_col_name:
   - tg
   smiles_col_name: smiles
@@ -52,15 +59,10 @@ hyper_parameters:
   other:
     learning_rate: 0.007954064937683933
 polymer: true
+seed: 42
 stereochemistry: false
+tf16: true
 train:
   batch_size: 128
-  bayopt_n_epochs: 20
-  bayopt_n_trials: 30
-  bayopt_on: true
   early_stopping_patience: 1000
-  kfold_n_splits: 3
   n_epochs: 2000
-  seed: 42
-  tf16: true
-  validation_method: kfold

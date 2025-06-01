@@ -1,7 +1,6 @@
 import shutil
 import os
 import platform
-import copy
 import warnings
 import random
 from logging import Logger
@@ -16,7 +15,7 @@ import torch
 
 from gnn.model import MolecularGNN
 from gnn.mol2graph import Mol2Graph
-from gnn.data import GraphData
+from gnn.data import GraphDataset
 from gnn.trainer import HoldOutTrainer, CrossValidationTrainer, EarlyStopping
 from gnn import utils
 from gnn.evaluate import evaluate_model
@@ -48,68 +47,66 @@ def seed_everything(seed: int):
     torch.backends.cudnn.benchmark = True
 
 
-def bayopt_training(
+def bayopt_hparams(
     output_dir: Path,
-    bayopt_graph_datasets,
+    bayopt_datasets: dict[str, GraphDataset],
     logger: Logger,
     n_features: int,
+    gnn_type: Literal["GAT", "GCN"],
     bayopt_bounds: dict,
-    validation_method: Literal["holdout", "kfold"] = "holdout",
-    kfold_n_splits: int = 5,
-    gnn_type="GAT",
+    validation_method: Literal["holdout", "cv"] = "holdout",
+    cv_n_splits=5,
+    n_epochs=10,
+    batch_size=32,
+    n_trials=10,
     num_of_outputs=1,
-    bayopt_n_epochs=10,
-    bayopt_batch_size=32,
-    bayopt_n_trials=10,
     seed=42,
     device="cpu"
 ):
-    """Optunaを用いてハイパーパラメータの最適化を行う関数
+    """Optunaを用いてハイパーパラメータの探索を行う関数
 
     Parameters
     ----------
     output_dir : Path
-        結果を保存するディレクトリのPath
-    bayopt_graph_datasets : _type_
-        グラフデータセット
+        出力ディレクトリのPathオブジェクト
+    bayopt_datasets : dict[str, GraphDataset]
+        学習用のデータセット
     logger : Logger
         ロガー
     n_features : int
-        ノードの特徴量の数
+        GNNのノード特徴量の次元数
+    gnn_type : Literal['GAT', 'GCN']
+        GNNの種類。'GAT'または'GCN'を指定。
     bayopt_bounds : dict
-        ハイパーパラメータの探索範囲
-    validation_method : Literal[holdout, kfold], optional
-        validationの方法, by default "holdout"
-    kfold_n_splits : int, optional
-        validationの方法がkfoldの時、分割する数, by default 5
-    gnn_type : str, optional
-        GNNの種類。GATとGCNが選択できる, by default "GAT"
+        ハイパーパラメータの探索範囲。
+    validation_method : Literal['holdout', 'cv'], optional
+        validationの方法。
+    cv_n_splits : int, optional
+        validation_method = "cv"の場合、クロスバリデーションの分割数, by default 5
+    n_epochs : int, optional
+        エポック数, by default 10
+    batch_size : int, optional
+        バッチサイズ, by default 32
+    n_trials : int, optional
+        ハイパーパラメータ探索の試行回数, by default 10
     num_of_outputs : int, optional
-        アウトプットの数, by default 1
-    bayopt_n_epochs : int, optional
-        _description_, by default 10
-    bayopt_batch_size : int, optional
-        _description_, by default 32
-    bayopt_n_trials : int, optional
-        _description_, by default 10
+        出力の数, by default 1
     seed : int, optional
-        _description_, by default 42
+        乱数シード, by default 42
     device : str, optional
-        _description_, by default "cpu"
+        使用するデバイス, by default "cpu"
 
     Returns
     -------
-    _type_
-        _description_
+    best_hparameters : dict
+        ベイズ最適化によって導出されたハイパーパラメータの辞書
     """
     bayopt_dir = output_dir.joinpath("bayes_opt")
     if bayopt_dir.exists():
         shutil.rmtree(bayopt_dir)
     bayopt_dir.mkdir()
-    # device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    # Optunaの学習用関数を内部に作成
     optuna.logging.enable_propagation()
-
+    # Optunaの学習用関数を内部に作成
     def _objective(trial: optuna.trial.Trial):
         lr = trial.suggest_float(
             "learning_rate",
@@ -118,7 +115,7 @@ def bayopt_training(
             log=True,
         )
 
-        opt_model = make_opt_model(
+        bayopt_model = make_opt_model(
             bayopt_bounds,
             n_features,
             gnn_type,
@@ -131,14 +128,14 @@ def bayopt_training(
         trial_path.mkdir(exist_ok=True)
 
         bayopt_trainer: Union[HoldOutTrainer, CrossValidationTrainer]
-        if validation_method == "kfold":
+        if validation_method == "cv":
             bayopt_trainer = CrossValidationTrainer(
                 trial_path,
                 learning_rate=lr,
                 scheduler=None,
-                n_epochs=bayopt_n_epochs,
-                batch_size=bayopt_batch_size,
-                kfold_n_splits=kfold_n_splits,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
+                cv_n_splits=cv_n_splits,
                 early_stopping=None,
                 device=device,
             )
@@ -147,12 +144,13 @@ def bayopt_training(
                 trial_path,
                 learning_rate=lr,
                 scheduler=None,
-                n_epochs=bayopt_n_epochs,
-                batch_size=bayopt_batch_size,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
                 early_stopping=None,
                 device=device,
             )
-        bayopt_trainer.fit(opt_model, bayopt_graph_datasets)
+        # モデルの学習
+        bayopt_trainer.fit(bayopt_model, bayopt_datasets)
         if BayOptLoss.loss is None:
             BayOptLoss.loss = bayopt_trainer.loss
         else:
@@ -166,7 +164,7 @@ def bayopt_training(
         direction="minimize",
         sampler=optuna.samplers.RandomSampler(seed=seed)
     )
-    study.optimize(_objective, n_trials=bayopt_n_trials, n_jobs=1)
+    study.optimize(_objective, n_trials=n_trials, n_jobs=1)
     # 探索のうち、一番損失が少なかった条件でのハイパーパラメータを保存
     trial = study.best_trial
     logger.info(
@@ -193,6 +191,27 @@ def make_opt_model(
     trial: optuna.trial.Trial,
     num_of_outputs=1,
 ):
+    """OptunaのトライアルからGNNモデルを生成する関数
+
+    Parameters
+    ----------
+    bayopt_bounds : dict
+        ハイパーパラメータの探索範囲。
+    n_features : int
+        GNNのノード特徴量の次元数
+    gnn_type : str
+        GNNの種類。'GAT'または'GCN'を指定。
+    trial : optuna.trial.Trial
+        Optunaのトライアルオブジェクト
+    num_of_outputs : int, optional
+        出力の数, by default 1
+
+    Returns
+    -------
+    MolecularGNN
+        生成されたGNNモデル
+    """
+    # ハイパーパラメータの探索範囲から値を取得
     n_conv_hidden_layer = trial.suggest_int(
         "n_conv_hidden_layer",
         bayopt_bounds["n_conv_hidden_layer"][0],
@@ -219,7 +238,7 @@ def make_opt_model(
         bayopt_bounds["drop_rate"][1],
         bayopt_bounds["drop_rate"][2]
     )
-
+    # 探索用に生成されたハイパーパラメータを用いてモデルを生成
     opt_model = MolecularGNN(
         n_features,
         n_conv_hidden_layer,
@@ -236,13 +255,39 @@ def make_opt_model(
 def training_model(
     model: MolecularGNN,
     output_dir: Path,
-    graph_datasets,
+    datasets: dict[str, GraphDataset],
     learning_rate: float,
     n_epochs=100,
     batch_size=32,
     early_stopping_patience=0,
     device="cpu",
 ):
+    """GNNモデルの本学習を行う関数
+
+    Parameters
+    ----------
+    model : MolecularGNN
+        学習するGNNモデル
+    output_dir : Path
+        出力ディレクトリのPathオブジェクト
+    datasets : dict[str, GraphDataset]
+        学習用のデータセット
+    learning_rate : float
+        学習率
+    n_epochs : int, optional
+        エポック数, by default 100
+    batch_size : int, optional
+        バッチサイズ, by default 32
+    early_stopping_patience : int, optional
+        Early Stoppingのエポック数, by default 0
+    device : str, optional
+        使用するデバイス, by default "cpu"
+
+    Returns
+    -------
+    model : MolecularGNN
+        学習後のGNNモデル
+    """
     training_dir = output_dir.joinpath("training")
     training_dir.mkdir()
     if early_stopping_patience > 0:
@@ -261,8 +306,31 @@ def training_model(
         early_stopping=early_stopping,
         device=device
     )
-    trainer.fit(model, graph_datasets)
+    trainer.fit(model, datasets)
     return model
+
+
+def copy_model_params(output_dir: Path):
+    """学習後のモデルパラメータを指定のディレクトリにコピーする関数
+
+    Parameters
+    ----------
+    output_dir : Path
+        学習結果の出力ディレクトリのPathオブジェクト
+    """
+    output_dir_name = output_dir.name
+    parent_dir = output_dir.parent.parent
+    model_dir = parent_dir.joinpath("model").joinpath(output_dir_name)
+    if not model_dir.exists():
+        model_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        output_dir.joinpath("model/all_params.yml"),
+        model_dir.joinpath("all_params.yml")
+    )
+    shutil.copy(
+        output_dir.joinpath("model/model_params.pth"),
+        model_dir.joinpath("model_params.pth")
+    )
 
 
 def run(
@@ -277,27 +345,39 @@ def run(
 ):
     with open(config_filepath) as yml:
         config = yaml.load(yml, Loader=yaml.FullLoader)
-
-    bayopt_on = config["train"]["bayopt_on"]
+    # *****************************************
+    # 変数の設定
+    # *****************************************
+    # ハイパーパラメータの最適化条件設定
+    bayopt_on = config["bayopt_hparams"]["bayopt_on"]
     if bayopt_on:
         bayopt_bounds = config["bayopt_bounds"]
-    bayopt_n_epochs = config["train"]["bayopt_n_epochs"]
-    bayopt_n_trials = config["train"]["bayopt_n_trials"]
+        bayopt_validation_method = config["bayopt_hparams"]["validation_method"]
+        if bayopt_validation_method not in ["holdout", "cv"]:
+            raise ValueError(
+                "bayopt_validation_method must be 'holdout' or 'cv'."
+            )
+        if bayopt_validation_method == "cv":
+            bayopt_cv_n_splits = config["bayopt_hparams"]["cv_n_splits"]
+        bayopt_n_epochs = config["bayopt_hparams"]["n_epochs"]
+        bayopt_n_trials = config["bayopt_hparams"]["n_trials"]
+        bayopt_batch_size = config["bayopt_hparams"]["batch_size"]
 
-    validation_method = config["train"]["validation_method"]
-    kfold_n_splits = config["train"]["kfold_n_splits"]
+    # 学習の条件設定
     batch_size = config["train"]["batch_size"]
     n_epochs = config["train"]["n_epochs"]
     early_stopping_patience = config["train"]["early_stopping_patience"]
-    tf16 = config["train"]["tf16"]
-    seed = config["train"]["seed"]
+    tf16 = config["tf16"]
+    seed = config["seed"]
 
+    # データセットの設定
     dataset_filepath = config["dataset"]["filepath"]
     output_dir = config["dataset"]["output_dir"]
     smiles_col_name = config["dataset"]["smiles_col_name"]
     prop_col_name = config["dataset"]["prop_col_name"]
     dataset_ratio = config["dataset"]["dataset_ratio"]
 
+    # モデルの設定
     computable_atoms = config["computable_atoms"]
     chirality = config["chirality"]
     stereochemistry = config["stereochemistry"]
@@ -306,11 +386,17 @@ def run(
     if type(prop_col_name) is str:
         prop_col_name = [prop_col_name]
 
+    # *****************************************
+    # データセットの読み込み
+    # *****************************************
     num_of_outputs = len(prop_col_name)
     dataset = pl.read_csv(dataset_filepath)
     dataset = dataset.select(smiles_col_name, *prop_col_name)
     print(dataset.head())
 
+    # *****************************************
+    # 出力ディレクトリの設定
+    # *****************************************
     output_dir = Path(output_dir)
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -323,6 +409,9 @@ def run(
     logger = utils.log_setup(log_dir, "training", verbose=True)
     logger.info(f"OS: {platform.system()}")
 
+    # *****************************************
+    # 計算精度の設定
+    # *****************************************
     if tf16:
         precision = "16"
         logger.info(f"precision is {precision}")
@@ -333,6 +422,9 @@ def run(
         torch.set_float32_matmul_precision("high")
     seed_everything(seed)
 
+    # *****************************************
+    # データセットの前処理
+    # *****************************************
     if dataset[smiles_col_name][0].count("*") == 0:
         poly_flag = False
     else:
@@ -341,53 +433,51 @@ def run(
         torch.device("cuda:0") if torch.cuda.is_available()
         else torch.device("cpu")
     )
+    # データのグラフ化処理
     mol2graph = Mol2Graph(
         computable_atoms, poly_flag, chirality, stereochemistry
     )
-    graph_data = GraphData(
+    graph_dataset = GraphDataset(
         smiles=dataset[smiles_col_name].to_numpy(),
         y=dataset[*prop_col_name].to_numpy(),
         mol2graph=mol2graph,
-        validation_method=validation_method,
-        kfold_n_splits=kfold_n_splits,
         batch_size=batch_size,
         dataset_ratio=dataset_ratio,
         random_state=seed,
     )
-    # graph_data.get_graphs_datasets()
-    logger.info(f"Dava validation method: {validation_method}.")
-    if validation_method == "kfold":
-        logger.info(f"Num of fold: {kfold_n_splits}")
-    graph_datasets = graph_data.split_dataset("holdout")
-    if validation_method == "kfold":
-        bayopt_graph_datasets = graph_data.split_dataset("kfold")
-    else:
-        bayopt_graph_datasets = copy.deepcopy(graph_datasets)
-    n_features = len(graph_datasets["train"][0]["x"][0])
+    training_datasets = graph_dataset.split_dataset("holdout")
+    # グラフのノード特徴量の次元数
+    n_features = len(training_datasets["train"][0]["x"][0])
     # *****************************************
     # ハイパーパラメータの最適化
     # *****************************************
     if bayopt_on:
+        logger.info(f"Dava validation method: {bayopt_validation_method}.")
+        if bayopt_validation_method == "cv":
+            logger.info(f"Num of fold: {bayopt_cv_n_splits}")
+            bayopt_datasets = graph_dataset.split_dataset("cv")
+        else:
+            bayopt_datasets = graph_dataset.split_dataset("holdout")
         # optuna.logger.disable_default_handler()
-        best_hparams = bayopt_training(
+        best_hparams = bayopt_hparams(
             output_dir,
-            bayopt_graph_datasets,
+            bayopt_datasets,
             logger,
             n_features,
-            bayopt_bounds,
-            validation_method,
-            kfold_n_splits,
             gnn_type,
+            bayopt_bounds,
+            bayopt_validation_method,
+            bayopt_cv_n_splits,
+            bayopt_n_epochs,
+            bayopt_batch_size,
+            bayopt_n_trials,
             num_of_outputs,
-            bayopt_n_epochs=bayopt_n_epochs,
-            bayopt_n_trials=bayopt_n_trials,
-            bayopt_batch_size=batch_size,
-            seed=seed,
-            device=device
+            seed,
+            device
         )
     else:
         best_hparams = {
-            "n_features": int(n_features),
+            "n_features": n_features,
             "n_conv_hidden_layer": n_conv_hidden_ref,
             "n_dense_hidden_layer": n_dense_hidden_ref,
             "graph_dim": graph_dim_ref,
@@ -406,7 +496,9 @@ def run(
     logger.info(f"Drop rate           |{best_hparams['drop_rate']}")
     logger.info(f"learning rate       |{best_hparams['learning_rate']}")
     logger.info("")
-    # 学習したハイパーパラメータの保存
+    # *****************************************
+    # ハイパーパラメータの保存
+    # *****************************************
     config["hyper_parameters"] = {
         "model": {
             "n_features": best_hparams["n_features"],
@@ -422,8 +514,11 @@ def run(
             "learning_rate": best_hparams["learning_rate"]
         }
     }
-    with open(model_dir.joinpath("all_params.yaml"), mode="w") as f:
+    with open(model_dir.joinpath("all_params.yml"), mode="w") as f:
         yaml.dump(config, f)
+    # *****************************************
+    # モデルの本学習
+    # *****************************************
     model = MolecularGNN(
         n_features=best_hparams["n_features"],
         n_conv_hidden_layer=best_hparams["n_conv_hidden_layer"],
@@ -434,11 +529,14 @@ def run(
         num_of_outputs=best_hparams["num_of_outputs"],
     )
     lr = best_hparams["learning_rate"]
+
     logger.info("***Training of the best model.***")
-    model = training_model(
+    training_datasets = graph_dataset.split_dataset("holdout")
+
+    trained_model = training_model(
         model,
         output_dir,
-        graph_datasets,
+        training_datasets,
         lr,
         n_epochs,
         batch_size,
@@ -446,11 +544,15 @@ def run(
         device
     )
     logger.info("Training Finishued!!!")
+    # *****************************************
+    # モデルの評価
+    # *****************************************
     evaluate_model(
-        model,
+        trained_model,
         logger,
         output_dir,
-        graph_datasets,
+        training_datasets,
         batch_size,
         device,
     )
+    copy_model_params(output_dir)

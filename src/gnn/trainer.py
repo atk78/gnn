@@ -19,12 +19,13 @@ from gnn.model import MolecularGNN
 
 
 class EarlyStopping:
+    counter = 0
+    best_score: float | None = None
+    early_stop = False
+    best_val_loss = np.inf
+
     def __init__(self, patience=100, model_dir_path=Path(".")):
         self.patience = patience
-        self.counter = 0
-        self.best_score = None
-        self.early_stop = False
-        self.best_val_loss = np.Inf
         self.model_dir_path = model_dir_path
 
     def __call__(
@@ -61,6 +62,9 @@ class EarlyStopping:
 
 
 class Trainer:
+    loss = 0.0
+    history: defaultdict[str, list] = defaultdict(list)
+
     def __init__(
         self,
         output_dir: Path,
@@ -78,7 +82,6 @@ class Trainer:
         self.batch_size = batch_size
         self.early_stopping = early_stopping
         self.device = device
-        self.history = defaultdict(list)
 
     def _epoch_train(
         self,
@@ -92,6 +95,7 @@ class Trainer:
         epoch_y_true = torch.Tensor()
         epoch_y_pred = torch.Tensor()
         model.train()
+
         for data in dataloader:
             data = data.to(self.device)
             optimizer.zero_grad()
@@ -119,6 +123,7 @@ class Trainer:
         epoch_loss = 0.0
         epoch_y_true = torch.Tensor()
         epoch_y_pred = torch.Tensor()
+
         model.eval()
         with torch.no_grad():
             for data in dataloader:
@@ -159,7 +164,7 @@ class CrossValidationTrainer(Trainer):
         scheduler=None,
         n_epochs: int = 100,
         batch_size: int = 1,
-        kfold_n_splits: int = 5,
+        cv_n_splits: int = 5,
         early_stopping: Optional[EarlyStopping] = None,
         device="cpu",
     ):
@@ -172,15 +177,14 @@ class CrossValidationTrainer(Trainer):
             early_stopping,
             device,
         )
-        self.kfold_n_splits = kfold_n_splits
+        self.cv_n_splits = cv_n_splits
         self.kf = KFold(
-            n_splits=self.kfold_n_splits,
+            n_splits=self.cv_n_splits,
             shuffle=True,
             random_state=42,
         )
-        self.loss = 0.0
 
-    def fit(self, model: MolecularGNN, graph_datasets):
+    def fit(self, model: MolecularGNN, graph_datasets: dict):
         metrics = MetricCollection(
             metrics={
                 "RMSE": MeanSquaredError(squared=False, num_outputs=1),
@@ -202,10 +206,8 @@ class CrossValidationTrainer(Trainer):
                 lr=self.learning_rate
             )
             self._initialize_early_stopping()
-            kfold_loss = 0.0
-            train_dataset = Subset(
-                graph_datasets["train"], train_idx
-            )
+            cv_loss = 0.0
+            train_dataset = Subset(graph_datasets["train"], train_idx)
             valid_dataset = Subset(
                 graph_datasets["train"], valid_idx
             )
@@ -258,15 +260,15 @@ class CrossValidationTrainer(Trainer):
                             f"{fold}_fold_model_params.pth"
                         )
                         if self.early_stopping.early_stop:
-                            kfold_loss = self.early_stopping.best_score
+                            cv_loss = self.early_stopping.best_score
                             break
                     else:
-                        kfold_loss = epoch_valid_loss
-                self.loss += kfold_loss
+                        cv_loss = epoch_valid_loss
+                self.loss += cv_loss
             filename = f"fold{fold}_metrics.csv"
             self._save_metrics(filename)
             self._refresh_metrics()
-            self.loss /= self.kfold_n_splits
+            self.loss /= self.cv_n_splits
 
 
 class HoldOutTrainer(Trainer):
@@ -289,7 +291,6 @@ class HoldOutTrainer(Trainer):
             early_stopping,
             device,
         )
-        self.loss = 0.0
 
     def fit(self, model: MolecularGNN, graph_datasets):
         model = model.to(self.device)

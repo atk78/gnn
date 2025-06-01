@@ -9,14 +9,12 @@ from gnn.mol2graph import Mol2Graph
 CORES = 2
 
 
-class GraphData:
+class GraphDataset:
     def __init__(
         self,
         smiles: np.ndarray,
         y: np.ndarray,
         mol2graph: Mol2Graph,
-        validation_method: Literal["holdout", "cv"] = "holdout",
-        kfold_n_splits: int | None = None,
         batch_size: int = 1,
         dataset_ratio: list[float] = [0.8, 0.1, 0.1],
         random_state: int = 42,
@@ -27,11 +25,9 @@ class GraphData:
         self.smiles = smiles
         self.y = y
         self.mol2graph = mol2graph
-        self.validation_method = validation_method
         self.batch_size = batch_size
         self.dataset_ratio = dataset_ratio
         self.random_state = random_state
-        self.kfold_n_splits = kfold_n_splits
         self.n_node_features, self.n_edge_features = self.mol2graph.get_base_graph_features()
         # ========= データセットの分割 ==========
         X_train, X_test, y_train, y_test = train_test_split(
@@ -57,9 +53,9 @@ class GraphData:
 
     def split_dataset(
         self,
-        validation_method: Literal["holdout", "kfold"] = "holdout"
+        validation_method: Literal["holdout", "cv"] = "holdout"
     ):
-        graph_datasets = dict()
+        datasets = dict()
         # ========= バリデーション方法の設定 ==========
         # ホールドアウト法によるデータ分割
         if validation_method == "holdout":
@@ -88,7 +84,7 @@ class GraphData:
             }
         # ======== グラフデータセットの作成 ==========
         for phase, [X, y] in splitted_datasets.items():
-            graph_datasets[phase] = self.mol2graph.get_graph_vectors(
+            datasets[phase] = self.mol2graph.get_graph_vectors(
                 X, y, self.n_node_features, self.n_edge_features
             )
-        return graph_datasets
+        return datasets

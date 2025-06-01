@@ -19,8 +19,8 @@ def inference(
     if type(model_dir) is str:
         model_dir = Path(model_dir)
     params = yaml.safe_load(open(model_dir.joinpath("all_params.yaml")))
-    poly_flag = params["polymer"]
-    if poly_flag:
+    polymer_flag = params["polymer"]
+    if polymer_flag:
         smiles_array = [
             smiles if (smiles is not None) and (smiles.count("*") >= 2) else None
             for smiles in smiles_list
