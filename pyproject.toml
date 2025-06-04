@@ -1,14 +1,13 @@
 [project]
 name = "gnn"
 version = "0.1.0"
-description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.10.1",
     "pandas>=2.2.3",
-    "torch==2.6.0+cu118",
-    "torchvision==0.21.0+cu118",
+    "torch==2.6.0+cu124",
+    "torchvision==0.21.0+cu124",
     "torch-geometric==2.3.0",
     "torchmetrics>=1.7.1",
     "scikit-learn>=1.6.1",
@@ -21,7 +20,7 @@ dependencies = [
 
 [[tool.uv.index]]
 name = "torch-cuda"
-url = "https://download.pytorch.org/whl/cu118"
+url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.uv.sources]

@@ -1,0 +1,20 @@
+{
+  "name": "cuda",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/home/gnn",
+  "settings": {
+    "terminal.integrated.defaultProfile.linux": "/bin/bash"
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-toolsai.jupyter",
+    "kevinrose.vsc-python-indent",
+    "mhutchie.git-graph",
+    "eamodio.gitlens",
+    "ionutvmi.path-autocomplete"
+  ],
+  "forwardPorts": [8000],
+  "remoteUser": "root",
+  "runArgs": ["--gpus", "all"]
+}

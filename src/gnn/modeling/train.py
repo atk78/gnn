@@ -15,10 +15,10 @@ import torch
 
 from gnn.model import MolecularGNN
 from gnn.mol2graph import Mol2Graph
-from gnn.data import GraphDataset
-from gnn.trainer import HoldOutTrainer, CrossValidationTrainer, EarlyStopping
+from gnn.dataset import GraphDataset
+from gnn.modeling.trainer import HoldOutTrainer, CrossValidationTrainer, EarlyStopping
+from gnn.modeling.evaluate import evaluate_model
 from gnn import utils
-from gnn.evaluate import evaluate_model
 
 
 warnings.simplefilter("ignore")

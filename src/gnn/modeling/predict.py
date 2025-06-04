@@ -9,9 +9,7 @@ from gnn.mol2graph import Mol2Graph
 from gnn.model import MolecularGNN
 
 
-
-
-def inference(
+def predict(
     model_dir: str | Path,
     smiles_list: list,
     device: str = "cpu",
