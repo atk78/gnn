@@ -10,8 +10,8 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
-      - .:/home/gnn
-    working_dir: /home/gnn
+      - .:/home/app
+    working_dir: /home/app
     tty: true
     deploy:
       resources:

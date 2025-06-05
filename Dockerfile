@@ -16,8 +16,8 @@ RUN ln -s /usr/bin/python3 /usr/bin/python && \
 
 RUN pip install uv
 
-WORKDIR /home/gnn
-COPY pyproject.toml /home/gnn/
+WORKDIR /home/app
+COPY pyproject.toml /home/app
 RUN uv sync
 RUN . .venv/bin/activate
 
